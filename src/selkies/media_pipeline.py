@@ -1510,6 +1510,7 @@ class MediaPipelinePixel(MediaPipeline):
             capture_settings.frame_duration_ms = 20
             capture_settings.use_vbr = False
             capture_settings.use_silence_gate = False
+            capture_settings.latency_ms = 10
             capture_settings.debug_logging = False
             pcmflux_settings = capture_settings
 
