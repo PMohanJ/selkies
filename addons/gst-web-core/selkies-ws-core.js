@@ -705,6 +705,9 @@ function applyManualCanvasStyle(targetWidth, targetHeight, scaleToFit) {
   const container = canvas.parentElement;
   const containerWidth = container.clientWidth;
   const containerHeight = container.clientHeight;
+
+  let cssWidthStr, cssHeightStr, topStr, leftStr;
+
   if (scaleToFit) {
     const logicalAspectRatio = targetWidth / targetHeight;
     const containerAspectRatio = containerWidth / containerHeight;
@@ -718,24 +721,47 @@ function applyManualCanvasStyle(targetWidth, targetHeight, scaleToFit) {
     }
     const topOffset = (containerHeight - cssHeight) / 2;
     const leftOffset = (containerWidth - cssWidth) / 2;
+
+    cssWidthStr = `${cssWidth}px`;
+    cssHeightStr = `${cssHeight}px`;
+    topStr = `${topOffset}px`;
+    leftStr = `${leftOffset}px`;
+
     canvas.style.position = 'absolute';
-    canvas.style.width = `${cssWidth}px`;
-    canvas.style.height = `${cssHeight}px`;
-    canvas.style.top = `${topOffset}px`;
-    canvas.style.left = `${leftOffset}px`;
+    canvas.style.width = cssWidthStr;
+    canvas.style.height = cssHeightStr;
+    canvas.style.top = topStr;
+    canvas.style.left = leftStr;
     canvas.style.objectFit = 'contain';
     console.log(`Applied manual style (Scaled): CSS ${cssWidth.toFixed(2)}x${cssHeight.toFixed(2)}, Buffer ${internalBufferWidth}x${internalBufferHeight}, Pos ${leftOffset.toFixed(2)},${topOffset.toFixed(2)}`);
   } else {
+    cssWidthStr = `${targetWidth}px`;
+    cssHeightStr = `${targetHeight}px`;
+    topStr = '0px';
+    leftStr = '0px';
+
     canvas.style.position = 'absolute';
-    canvas.style.width = `${targetWidth}px`;
-    canvas.style.height = `${targetHeight}px`;
-    canvas.style.top = '0px';
-    canvas.style.left = '0px';
+    canvas.style.width = cssWidthStr;
+    canvas.style.height = cssHeightStr;
+    canvas.style.top = topStr;
+    canvas.style.left = leftStr;
     canvas.style.objectFit = 'fill';
     console.log(`Applied manual style (Exact): CSS ${targetWidth}x${targetHeight}, Buffer ${internalBufferWidth}x${internalBufferHeight}, Pos 0,0`);
   }
   canvas.style.display = 'block';
   updateCanvasImageRendering();
+
+  const overlayInputEl = document.getElementById('overlayInput');
+  if (overlayInputEl) {
+      overlayInputEl.style.position = 'absolute';
+      overlayInputEl.style.width = cssWidthStr;
+      overlayInputEl.style.height = cssHeightStr;
+      overlayInputEl.style.top = topStr;
+      overlayInputEl.style.left = leftStr;
+  }
+  if (window.webrtcInput && typeof window.webrtcInput.resize === 'function') {
+      window.webrtcInput.resize();
+  }
 }
 
 function resetCanvasStyle(streamWidth, streamHeight) {
