@@ -1029,6 +1029,7 @@ class DataStreamingServer:
             capture_settings.frame_duration_ms = 20
             capture_settings.use_vbr = True
             capture_settings.use_silence_gate = False
+            capture_settings.latency_ms = 10
             capture_settings.debug_logging = self.cli_args.debug[0]
             self.pcmflux_settings = capture_settings
 
