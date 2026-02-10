@@ -79,6 +79,8 @@ let useCssScaling = false;
 let trackpadMode = false;
 let scalingDPI = 96;
 let antiAliasingEnabled = true;
+let clipboard_in_enabled = true;
+let clipboard_out_enabled = true;
 let use_browser_cursors = false;
 function applyEffectiveCursorSetting() {
     const userPreference = getBoolParam('use_browser_cursors', false);
@@ -391,6 +393,8 @@ if (displayId === 'display2') {
     use_browser_cursors = true;
 }
 enable_binary_clipboard = getBoolParam('enable_binary_clipboard', enable_binary_clipboard);
+clipboard_in_enabled = getBoolParam('clipboard_in_enabled', true);
+clipboard_out_enabled = getBoolParam('clipboard_out_enabled', true);
 setIntParam('framerate', framerate);
 setIntParam('h264_crf', h264_crf);
 setIntParam('jpeg_quality', jpeg_quality);
@@ -1897,6 +1901,7 @@ function receiveMessage(event) {
 }
 
 async function sendClipboardData(data, mimeType = 'text/plain') {
+    if (!window.clipboard_enabled || !clipboard_in_enabled) return;
     if (!websocket || websocket.readyState !== WebSocket.OPEN) {
         console.warn('Cannot send clipboard data: WebSocket is not open.');
         return;
@@ -2057,6 +2062,16 @@ function handleSettingsMessage(settings) {
     setBoolParam('enable_binary_clipboard', enable_binary_clipboard);
     settingsChanged = true;
   }
+  if (settings.clipboard_in_enabled !== undefined) {
+    clipboard_in_enabled = !!settings.clipboard_in_enabled;
+    setBoolParam('clipboard_in_enabled', clipboard_in_enabled);
+    settingsChanged = true;
+  }
+  if (settings.clipboard_out_enabled !== undefined) {
+    clipboard_out_enabled = !!settings.clipboard_out_enabled;
+    setBoolParam('clipboard_out_enabled', clipboard_out_enabled);
+    settingsChanged = true;
+  }
   if (settings.use_css_scaling !== undefined) {
     const messageData = { type: 'setUseCssScaling', value: !!settings.use_css_scaling };
     receiveMessage({ origin: window.location.origin, data: messageData });
@@ -2204,7 +2219,7 @@ document.addEventListener('DOMContentLoaded', () => {
   );
 
   window.addEventListener('focus', async () => {
-    if (isSharedMode || !window.clipboard_enabled) return;
+    if (isSharedMode || !window.clipboard_enabled || !clipboard_in_enabled) return;
 
     if (!enable_binary_clipboard) {
       navigator.clipboard
