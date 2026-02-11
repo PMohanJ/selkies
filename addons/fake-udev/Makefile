@@ -1,6 +1,6 @@
 TARGET_SO = libudev.so.1
 TARGET_BASENAME = libudev.so
-LIB_VERSION ?= 1.0.0-fake # Doesn't really matter for LD_PRELOAD
+LIB_VERSION ?= 1.0.0-fake
 FULL_TARGET = $(TARGET_BASENAME).$(LIB_VERSION)
 CC = gcc
 CFLAGS = -Wall -Wextra -fPIC -DPIC -O2 -g
