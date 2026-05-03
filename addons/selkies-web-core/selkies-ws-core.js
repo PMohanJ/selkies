@@ -2212,7 +2212,7 @@ function clearSharedModeProbingTimeout() {
 }
 
 
-document.addEventListener('DOMContentLoaded', () => {
+function initWebsockets() {
   async function initializeDecoder() {
     mainDecoderHasKeyframe = false;
     if (decoder && decoder.state !== 'closed') {
@@ -3969,7 +3969,13 @@ function handleDecodedFrame(frame) {
       }, 5000);
     }
   };
-});
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initWebsockets);
+} else {
+  initWebsockets();
+}
 
 function cleanupVideoBuffer() {
   let closedCount = 0;

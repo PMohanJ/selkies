@@ -328,9 +328,9 @@ class CentralizedStreamServer:
                         f"Task cancelled after timeout for '{self.current_mode}'."
                     )
 
-    def get_status(self):
+    def _get_status(self):
         return {
-            "active_mode": self.current_mode,
+            "current_mode": self.current_mode,
             "available_modes": list(self.services.keys()),
         }
 
@@ -350,8 +350,8 @@ class CentralizedStreamServer:
         except Exception as e:
             return web.json_response({"status": "error", "message": str(e)}, status=400)
 
-    async def handle_status(self, request: web.Request) -> web.Response:
-        status = self.get_status()
+    async def handle_status(self, _: web.Request) -> web.Response:
+        status = self._get_status()
         return web.json_response(status)
 
     async def handle_health(self, _) -> web.Response:
@@ -375,7 +375,7 @@ class CentralizedStreamServer:
             self.web_files_ctx = tempfile.TemporaryDirectory(prefix="selkies_web")
             temp_path = pathlib.Path(self.web_files_ctx.name)
             await asyncio.to_thread(self._copy_traversable, package_path, temp_path)
- 
+
             if (temp_path / "index.html").exists():
                 logger.info(f"Using extracted package path from temp dir: {temp_path}")
                 return str(temp_path)
@@ -528,8 +528,7 @@ class CentralizedStreamServer:
         )
         if api_prefix:
             logger.info(f"Prepending api prefix: {api_prefix!r} to router handlers")
-        else:
-            logger.info(f"** prefix; {api_prefix}")
+
         self.app.add_routes(
             [
                 web.get(f"{api_prefix}/status", self.handle_status),
