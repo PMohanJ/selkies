@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import GamepadVisualizer from "./GamepadVisualizer";
 import { getTranslator } from "../translations";
 import yaml from "js-yaml";
+import { getRoutePrefix } from "../utils.js";
 
 // --- Constants ---
 const urlHash = window.location.hash;
@@ -91,14 +92,6 @@ const DEFAULT_AUDIO_BITRATE = 128000;  // in bps
 const DEFAULT_VIDEO_BITRATE = 8;   // in mbps
 const RATE_CONTROL_CBR = "cbr";
 const RATE_CONTROL_CRF = "crf";
-
-// Returns URL pathname against browser's URL even when running under
-// iframe context where the pathname could be root directory `/` otherwise.
-function getRoutePrefix() {
-  const pathname = window.location.pathname;
-  const dirPath = pathname.substring(0, pathname.lastIndexOf('/') + 1);
-  return dirPath.replace(/\/$/, '');
-}
 
 function formatBytes(bytes, decimals = 2, rawDict) {
   const zeroBytesText = rawDict?.zeroBytes || "0 Bytes";

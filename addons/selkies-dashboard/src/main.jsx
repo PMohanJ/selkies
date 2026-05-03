@@ -4,25 +4,25 @@ import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import PlayerGamepadButton from './components/PlayerGamepadButton.jsx';
 import './index.css';
+import { getRoutePrefix } from './utils.js';
 
-// Probe the dual-mode supervisor for the currently active streaming mode
-// before importing selkies-core. selkies-core reads
-// window.__SELKIES_STREAMING_MODE__ at module-evaluation time and starts the
-// transport immediately, so the probe must finish first. Falls back silently
-// (single-mode setups have no /status endpoint).
+// Probe the server for the currently active streaming mode
+// before importing selkies-core.
 async function detectInitialMode() {
   try {
-    const r = await fetch('./status', {
+    const resp = await fetch(`${getRoutePrefix()}/status`, {
       credentials: 'same-origin',
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(2000),
     });
-    if (!r.ok) return;
-    const data = await r.json();
+    if (!resp.ok) 
+      throw new Error(`Failed to fetch initial mode, status: ${resp.status}`);
+    const data = await resp.json();
     if (data && data.current_mode) {
+      console.log(`Received initial streaming mode: ${data.current_mode}`);
       window.__SELKIES_STREAMING_MODE__ = data.current_mode;
     }
-  } catch {
-    // /status missing, slow, or returned bad JSON - keep default
+  } catch (err) {
+    console.warn(`Error detecting initial mode: ${err}`);
   }
 }
 
@@ -32,7 +32,11 @@ const playerClientModes = ['#player2', '#player3', '#player4'];
 
 (async () => {
   await detectInitialMode();
+  // Prevent selkies-core from auto-initializing
+  window.__SELKIES_DEFER_INITIALIZATION = true;
   await import('./selkies-core.js');
+  // Initialize with the mode detected from server
+  window.selkiesCoreInitialize();
   if (!noDashboardModes.includes(currentHash)) {
     const dashboardRootElement = document.createElement('div');
     dashboardRootElement.id = 'dashboard-root';
