@@ -838,24 +838,22 @@ class AppSettings:
                     processed_value = (bool_value, is_locked)
                 elif stype in ["enum", "list"]:
                     if is_override:
-                        master_list = setting.get('meta', {}).get('allowed', [])
+                        master_list = setting.get("meta", {}).get("allowed", [])
                         raw_value_str = str(raw_value)
-                        if stype == 'list' and raw_value_str.strip().lower() in ('', 'none'):
-                            # Explicit "disable" tokens for list-type settings.
-                            # Documented in each list setting's help text (e.g.
-                            # file_transfers: 'Set to "" or "none" to disable.').
+                        if stype == "list" and raw_value_str.strip().lower() in ("", "none"):
+                            # Disable list-type settings if set to "" or "none"
                             valid_items = []
                         else:
                             user_items = [item.strip() for item in raw_value_str.split(',') if item.strip()]
                             valid_items = [item for item in user_items if item in master_list]
                             if not valid_items:
                                 logging.warning(f"Invalid value(s) '{raw_value_str}' for {name}. Using system default.")
-                                default_str = str(setting['default'])
-                                valid_items = [item.strip() for item in default_str.split(',') if item in master_list]
-                        setting['meta']['allowed'] = valid_items
-                        if stype == 'enum':
-                            processed_value = valid_items[0] if valid_items else setting['default']
-                        else: # list
+                                default_str = str(setting["default"])
+                                valid_items = [item.strip() for item in default_str.split(',') if item.strip() in master_list]
+                        setting["meta"]["allowed"] = valid_items
+                        if stype == "enum":
+                            processed_value = valid_items[0] if valid_items else setting["default"]
+                        else:  # list
                             processed_value = valid_items
                     else:
                         if stype == "enum":
