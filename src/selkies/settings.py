@@ -849,7 +849,7 @@ class AppSettings:
                             if not valid_items:
                                 logging.warning(f"Invalid value(s) '{raw_value_str}' for {name}. Using system default.")
                                 default_str = str(setting["default"])
-                                valid_items = [item.strip() for item in default_str.split(',') if item.strip() in master_list]
+                                valid_items = [item.strip() for item in default_str.split(',') if item.strip() and item.strip() in master_list]
                         setting["meta"]["allowed"] = valid_items
                         if stype == "enum":
                             processed_value = valid_items[0] if valid_items else setting["default"]
