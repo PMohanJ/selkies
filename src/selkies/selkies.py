@@ -1107,7 +1107,7 @@ class DataStreamingServer(BaseStreamingService):
 
     async def _start_pcmflux_pipeline(self):
         if not settings.audio_enabled[0]:
-            data_logger.info("Server-to-client audio is disabled by server settings. Not starting pipeline.")
+            data_logger.info("Audio is disabled by server settings. Not starting pipeline.")
             return False
         if not PCMFLUX_AVAILABLE:
             data_logger.error("Cannot start audio pipeline: pcmflux library not available.")
@@ -1805,18 +1805,22 @@ class DataStreamingServer(BaseStreamingService):
             _collect_network_stats_ws(self._shared_stats_ws, self)
         )
 
+        pulse = None
         try:
             if PULSEAUDIO_AVAILABLE:
-                try:
-                    data_logger.info("Attempting to establish PulseAudio connection...")
-                    pulse = pulsectl.Pulse("selkies-mic-handler")
-                    data_logger.info("PulseAudio connection established.")
-                except Exception as e_pa_conn:
-                    data_logger.error(
-                        f"Initial PulseAudio connection failed: {e_pa_conn}",
-                        exc_info=True,
-                    )
-                    pulse = None
+                if not settings.audio_enabled[0]:
+                    data_logger.info("Audio is disabled in settings. Skipping PulseAudio setup.")
+                else:
+                    try:
+                        data_logger.info("Attempting to establish PulseAudio connection...")
+                        pulse = pulsectl.Pulse("selkies-mic-handler")
+                        data_logger.info("PulseAudio connection established.")
+                    except Exception as e_pa_conn:
+                        data_logger.error(
+                            f"Initial PulseAudio connection failed: {e_pa_conn}",
+                            exc_info=True,
+                        )
+                        pulse = None
 
             async for msg in websocket:
                 if msg.type == WSMsgType.BINARY:
@@ -1847,7 +1851,7 @@ class DataStreamingServer(BaseStreamingService):
                                 ]
                                 active_upload_target_path_conn = None
                     elif msg_type == 0x02:  # Mic data
-                        if not settings.microphone_enabled[0]:
+                        if not settings.audio_enabled[0] or not settings.microphone_enabled[0]:
                             continue
                         if not PULSEAUDIO_AVAILABLE:
                             if len(payload) > 0:
@@ -2439,14 +2443,17 @@ class DataStreamingServer(BaseStreamingService):
                                     "Received START_AUDIO command from client for server-to-client audio."
                                 )
                                 if PCMFLUX_AVAILABLE:
+                                    started = False
                                     if not self.is_pcmflux_capturing:
                                         data_logger.info("START_AUDIO: Starting pcmflux audio pipeline.")
-                                        await self._start_pcmflux_pipeline()
+                                        started = await self._start_pcmflux_pipeline()
                                     else:
+                                        started = True
                                         data_logger.info("START_AUDIO: pcmflux audio pipeline already active.")
+                                    if started:
+                                        await _broadcast_to_clients(self.clients, "AUDIO_STARTED")
                                 else:
                                     data_logger.warning("START_AUDIO: Cannot start server-to-client audio (pcmflux not available).")
-                                await _broadcast_to_clients(self.clients, "AUDIO_STARTED")
                         asyncio.create_task(_handle_start_audio_request())
 
                     elif message == "STOP_AUDIO":

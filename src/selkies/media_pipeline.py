@@ -405,6 +405,8 @@ class MediaPipelinePixel(MediaPipeline):
 
                 if self.audio_enabled:
                     await self._start_audio_pipeline()
+                else:
+                    logger.info("Audio pipeline is disabled, skipping audio capture startup.")
                 self._running = True
             except Exception as e:
                 logger.error(f"Error starting media pipelines: {e}", exc_info=True)
