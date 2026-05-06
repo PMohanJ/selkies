@@ -1781,6 +1781,8 @@ class DataStreamingServer(BaseStreamingService):
         # Define virtual source details
         virtual_source_name = "SelkiesVirtualMic"
         master_monitor = "input.monitor"
+        # PipeWire prepends "output." to virtual sources
+        valid_source_names = [virtual_source_name, f"output.{virtual_source_name}"]
 
         if not self.input_handler:
             logger.error(
@@ -1868,71 +1870,100 @@ class DataStreamingServer(BaseStreamingService):
 
                         if not mic_setup_done:
                             data_logger.info(
-                                "Performing PulseAudio virtual microphone setup check..."
+                                "Performing PulseAudio/PipeWire virtual microphone setup check..."
                             )
                             try:
+                                input_sink = "input"
+                                output_sink = self.audio_device_name.strip().split(".monitor")[0] if self.audio_device_name else "output"
+                                # Create required null sinks if they don't exist
+                                required_sinks = [input_sink, output_sink]
+                                for sink_name in required_sinks:
+                                    sink_exists = False
+                                    for sink in pulse.sink_list():
+                                        if sink.name == sink_name:
+                                            sink_exists = True
+                                            break
+
+                                    if not sink_exists:
+                                        data_logger.info(f"Sink '{sink_name}' not found. Attempting to create...")
+                                        sink_module_index = pulse.module_load("module-null-sink", f"sink_name={sink_name}")
+
+                                        sink_created = await self._poll_audio_sink(pulse, [sink_name])
+                                        if sink_created:
+                                            data_logger.info(f"Successfully created and verified sink '{sink_name}'.")
+                                        else:
+                                            data_logger.error(f"Loaded module-null-sink for '{sink_name}' but it failed to appear in sink list.")
+                                    else:
+                                        data_logger.info(f"Sink '{sink_name}' already exists. Skipping creation.")
+
+                                # Force the system default sink to output sink
+                                try:
+                                    pulse.sink_default_set(output_sink)
+                                    data_logger.info(f"Set system default sink to '{output_sink}'.")
+                                except Exception as e:
+                                    data_logger.warning(f"Could not set default sink to '{output_sink}': {e}")
+
+                                target_device_names = [self.audio_device_name]
+                                if "auto_null.monitor" not in target_device_names:
+                                    # Pipewire's default virtual sink is auto_null
+                                    target_device_names.append("auto_null.monitor")
+
                                 existing_source_info = None
                                 source_list = pulse.source_list()
                                 for source_obj in source_list:
-                                    if source_obj.name == virtual_source_name:
+                                    if source_obj.name in valid_source_names:
                                         existing_source_info = source_obj
                                         break
 
                                 if existing_source_info:
                                     data_logger.info(
-                                        f"Virtual source '{virtual_source_name}' (Index: {existing_source_info.index}) already exists."
+                                        f"Virtual source '{existing_source_info.name}' (Index: {existing_source_info.index}) already exists."
                                     )
-                                    actual_master = existing_source_info.proplist.get(
-                                        "device.master_device"
-                                    )
+                                    actual_master = existing_source_info.proplist.get("device.master_device")
                                     if actual_master == master_monitor:
-                                        data_logger.info(
-                                            f"Existing source correctly linked to '{master_monitor}'."
-                                        )
+                                        data_logger.info(f"Existing source correctly linked to '{master_monitor}'.")
                                     else:
                                         data_logger.warning(
-                                            f"Existing source '{virtual_source_name}' linked to '{actual_master}' not '{master_monitor}'. Manual fix may be needed."
+                                            f"Existing source '{existing_source_info.name}' linked to '{actual_master}' not '{master_monitor}'. Manual fix may be needed."
                                         )
-                                    pa_module_index = (
-                                        existing_source_info.owner_module
-                                    )
+                                    pa_module_index = existing_source_info.owner_module
                                     mic_setup_done = True
+
+                                    # Ensure default source is maintained even if it already existed
+                                    try:
+                                        pulse.source_default_set(existing_source_info.name)
+                                    except Exception as e:
+                                        pass
                                 else:
                                     data_logger.info(
                                         f"Virtual source '{virtual_source_name}' not found. Attempting to load module..."
                                     )
                                     load_args = f"source_name={virtual_source_name} master={master_monitor}"
-                                    pa_module_index = pulse.module_load(
-                                        "module-virtual-source", load_args
-                                    )
-                                    data_logger.info(
-                                        f"Loaded module-virtual-source with index {pa_module_index} for '{virtual_source_name}'."
-                                    )
+                                    pa_module_index = pulse.module_load("module-virtual-source", load_args)
+                                    data_logger.info(f"Loaded module-virtual-source with index {pa_module_index} for '{virtual_source_name}'.")
 
-                                    new_source_info = None
-                                    source_list_after_load = pulse.source_list()
-                                    for source_obj_after in source_list_after_load:
-                                        if source_obj_after.name == virtual_source_name:
-                                            new_source_info = source_obj_after
-                                            break
+                                    new_source_info = await self._poll_audio_source(pulse, valid_source_names)
                                     if new_source_info:
                                         data_logger.info(
-                                            f"Successfully verified creation of source '{virtual_source_name}' (Index: {new_source_info.index})."
+                                            f"Successfully verified creation of source '{new_source_info.name}' (Index: {new_source_info.index})."
                                         )
-                                        mic_setup_done = True
+
+                                        # Force the system default source to SelkiesVirtualMic so apps record from it
+                                        try:
+                                            pulse.source_default_set(new_source_info.name)
+                                            data_logger.info(f"Set system default source to '{new_source_info.name}'.")
+                                            mic_setup_done = True
+                                        except Exception as e:
+                                            data_logger.warning(f"Could not set default source via pulsectl: {e}")
                                     else:
                                         data_logger.error(
                                             f"Loaded module {pa_module_index} but failed to find source '{virtual_source_name}'."
                                         )
-                                        if (
-                                            pa_module_index is not None
-                                        ):
+                                        if pa_module_index is not None:
                                             try:
                                                 pulse.module_unload(pa_module_index)
                                             except Exception as unload_err:
-                                                data_logger.error(
-                                                    f"Failed to unload module {pa_module_index}: {unload_err}"
-                                                )
+                                                data_logger.error(f"Failed to unload module {pa_module_index}: {unload_err}")
                                             pa_module_index = None
 
                                 if mic_setup_done:
@@ -1955,23 +1986,23 @@ class DataStreamingServer(BaseStreamingService):
                                                     if source.index == pcmflux_output.source:
                                                         connected_source = source
                                                         break
-                                                if connected_source and connected_source.name != self.audio_device_name:
+                                                if connected_source and connected_source.name not in target_device_names:
                                                     data_logger.warning(
-                                                        f"pcmflux connected to wrong source '{connected_source.name}', moving to '{self.audio_device_name}'"
+                                                        f"pcmflux connected to wrong source '{connected_source.name}', looking for a valid target in {target_device_names}..."
                                                     )
                                                     correct_source = None
                                                     for source in current_source_list:
-                                                        if source.name == self.audio_device_name:
+                                                        if source.name in target_device_names:
                                                             correct_source = source
                                                             break
                                                     if correct_source:
                                                         pulse.source_output_move(pcmflux_output.index, correct_source.index)
                                                         data_logger.info(
-                                                            f"Successfully moved pcmflux from '{connected_source.name}' to '{self.audio_device_name}'"
+                                                            f"Successfully moved pcmflux from '{connected_source.name}' to '{correct_source.name}'"
                                                         )
                                                     else:
                                                         data_logger.error(
-                                                            f"Could not find source '{self.audio_device_name}' to move pcmflux to"
+                                                            f"Could not find any valid source {target_device_names} to move pcmflux to"
                                                         )
                                                 elif connected_source:
                                                     data_logger.info(f"pcmflux correctly connected to '{connected_source.name}'")
@@ -2794,6 +2825,29 @@ class DataStreamingServer(BaseStreamingService):
                      await self.shutdown_pipelines()
 
             data_logger.info(f"Data WS handler for {raddr} finished all cleanup.")
+
+    async def _poll_audio_source(self, pulse, valid_source_names, poll_interval=0.1, timeout=2.0):
+        """Asynchronous polling loop for PipeWire source"""
+        max_retries = int(timeout / poll_interval)
+        for _ in range(max_retries):
+            source_list_after_load = pulse.source_list()
+            for source_obj_after in source_list_after_load:
+                if source_obj_after.name in valid_source_names:
+                    return source_obj_after
+            await asyncio.sleep(poll_interval)
+        return None
+    
+    async def _poll_audio_sink(self, pulse, valid_sink_names, poll_interval=0.1, timeout=2.0):
+        """Asynchronous polling loop for PipeWire sink"""
+        # as pipewire takes time to create and register it.
+        sink_retries = int(timeout / poll_interval)
+        sink_verified = False
+        for _ in range(sink_retries):
+            for s in pulse.sink_list():
+                if s.name in valid_sink_names:
+                    return s
+            await asyncio.sleep(poll_interval)
+        return None
 
     async def _cleanup_client(self, websocket, display_id):
         """Removes a client and triggers reconfiguration if necessary."""
