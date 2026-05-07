@@ -1769,7 +1769,9 @@ class DataStreamingServer(BaseStreamingService):
         active_upload_target_path_conn = None
         upload_dir_valid = upload_dir_path is not None
         
-        mic_setup_done = False 
+        mic_setup_done = False
+        mic_disabled_sent = False
+        mic_error = False
         pa_module_index = None
         pa_stream = None
         pulse = None
@@ -1810,7 +1812,7 @@ class DataStreamingServer(BaseStreamingService):
         pulse = None
         try:
             if PULSEAUDIO_AVAILABLE:
-                if not settings.audio_enabled[0]:
+                if not settings.audio_enabled[0] or not settings.microphone_enabled[0]:
                     data_logger.info("Audio is disabled in settings. Skipping PulseAudio setup.")
                 else:
                     try:
@@ -1822,7 +1824,9 @@ class DataStreamingServer(BaseStreamingService):
                             f"Initial PulseAudio connection failed: {e_pa_conn}",
                             exc_info=True,
                         )
-                        pulse = None
+                        mic_error = True
+            else:
+                mic_error = True
 
             async for msg in websocket:
                 if msg.type == WSMsgType.BINARY:
@@ -1853,7 +1857,14 @@ class DataStreamingServer(BaseStreamingService):
                                 ]
                                 active_upload_target_path_conn = None
                     elif msg_type == 0x02:  # Mic data
-                        if not settings.audio_enabled[0] or not settings.microphone_enabled[0]:
+                        if mic_error or not settings.audio_enabled[0] or not settings.microphone_enabled[0]:
+                            if not mic_disabled_sent:
+                                mic_disabled_sent = True
+                                data_logger.info("Microphone is disabled/errored. Sending MICROPHONE_DISABLED to client.")
+                                try:
+                                    await websocket.send_str("MICROPHONE_DISABLED")
+                                except (ConnectionResetError, OSError, RuntimeError):
+                                    pass
                             continue
                         if not PULSEAUDIO_AVAILABLE:
                             if len(payload) > 0:
@@ -2038,9 +2049,9 @@ class DataStreamingServer(BaseStreamingService):
                         if not mic_setup_done or not payload:
                             if not mic_setup_done and len(payload) > 0:
                                 data_logger.warning(
-                                    "Mic setup not complete, skipping mic data."
+                                    "Mic setup not complete, setting microphone error."
                                 )
-                            continue
+                            mic_error = True
 
                         try:
                             if pa_stream is None:
@@ -2473,6 +2484,10 @@ class DataStreamingServer(BaseStreamingService):
                                 data_logger.info(
                                     "Received START_AUDIO command from client for server-to-client audio."
                                 )
+                                if not settings.audio_enabled[0]:
+                                    data_logger.info("START_AUDIO: Audio is disabled by server settings. Sending AUDIO_DISABLED.")
+                                    await websocket.send_str("AUDIO_DISABLED")
+                                    return
                                 if PCMFLUX_AVAILABLE:
                                     started = False
                                     if not self.is_pcmflux_capturing:
