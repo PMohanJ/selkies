@@ -22,10 +22,10 @@
 import asyncio
 import logging
 import ctypes
-import pulsectl
+import pulsectl_asyncio
 from enum import Enum
 from abc import ABCMeta, abstractmethod
-from typing import Callable
+from typing import Callable, Awaitable
 
 from pixelflux import CaptureSettings, ScreenCapture
 from pcmflux import AudioCapture, AudioCaptureSettings, AudioChunkCallback
@@ -116,7 +116,7 @@ class MediaPipelinePixel(MediaPipeline):
         self.audio_enabled = audio_enabled
         self.audio_device_name = audio_device_name
         self.capture_cursor = False
-        self.produce_data: Callable[[bytes, int, str], None] = lambda buf, pts, kind: logger.warning(
+        self.produce_data: Callable[[bytes, int, str], Awaitable[None]] = lambda buf, pts, kind: logger.warning(
             "unhandled produce_data"
         )
         self.send_data_channel_message: Callable[[str], None] = lambda msg: logger.warning(
@@ -315,7 +315,7 @@ class MediaPipelinePixel(MediaPipeline):
                     data_bytes = bytes(result.data[10 : result.size])
                     if not hasattr(result, "frame_id"):
                         logger.error(
-                            f"frame_id from callback is empty: {result.frame_id}"
+                            f"Missing frame_id from screen capture result, skipping frame"
                         )
                     else:
                         # Generate pts from frame_id
@@ -443,8 +443,10 @@ class MediaPipelinePixel(MediaPipeline):
         """
         # Give pcmflux a fraction of a second to initialize its PA stream
         await asyncio.sleep(0.5)
+        pulse = None
         try:
-            pulse = pulsectl.Pulse("selkies-webrtc-router")
+            pulse = pulsectl_asyncio.PulseAsync("selkies-webrtc-router")
+            await pulse.connect()
         except Exception as e:
             logger.error(
                 f"Failed to connect to PulseAudio for routing enforcement: {e}"
@@ -452,7 +454,7 @@ class MediaPipelinePixel(MediaPipeline):
             return
 
         try:
-            current_source_list = pulse.source_list()
+            current_source_list = await pulse.source_list()
             correct_source = None
             for s in current_source_list:
                 if s.name == self.audio_device_name:
@@ -465,7 +467,7 @@ class MediaPipelinePixel(MediaPipeline):
                 )
                 return
 
-            source_outputs = pulse.source_output_list()
+            source_outputs = await pulse.source_output_list()
             for output in source_outputs:
                 app_name = output.proplist.get("application.name", "")
                 if app_name == "pcmflux":
@@ -480,7 +482,7 @@ class MediaPipelinePixel(MediaPipeline):
                             f"'{connected_source_name}', moving to '{correct_source.name}'"
                         )
                         try:
-                            pulse.source_output_move(output.index, correct_source.index)
+                            await pulse.source_output_move(output.index, correct_source.index)
                             logger.info(
                                 f"Successfully moved WebRTC pcmflux to '{correct_source.name}'"
                             )
@@ -494,15 +496,18 @@ class MediaPipelinePixel(MediaPipeline):
         except Exception as e:
             logger.error(f"Error enforcing WebRTC audio routing: {e}")
         finally:
-            pulse.close()
+            if pulse is not None:
+                pulse.close()
 
     async def _ensure_audio_device(self):
         """
         Verify the configured audio_device_name is a valid source.
         If not, attempt to fallback to the default sink's monitor
         """
+        pulse = None
         try:
-            pulse = pulsectl.Pulse("selkies-media-pipeline")
+            pulse = pulsectl_asyncio.PulseAsync("selkies-media-pipeline")
+            await pulse.connect()
         except Exception as e:
             logger.error(f"Failed to connect to PulseAudio/PipeWire: {e}")
             return
@@ -511,10 +516,10 @@ class MediaPipelinePixel(MediaPipeline):
             default_sink_name = None
             default_monitor_name = None
             try:
-                server_info = pulse.server_info()
+                server_info = await pulse.server_info()
                 default_sink_name = server_info.default_sink_name
                 logger.info(
-                    f"***Default sink from PulseAudio/PipeWire: '{default_sink_name}'"
+                    f"Default sink from PulseAudio/PipeWire: '{default_sink_name}'"
                 )
                 if default_sink_name:
                     default_monitor_name = f"{default_sink_name}.monitor"
@@ -523,11 +528,11 @@ class MediaPipelinePixel(MediaPipeline):
 
             available_sources = set()
             try:
-                for src in pulse.source_list():
+                sources = await pulse.source_list()
+                for src in sources:
                     available_sources.add(src.name)
             except Exception as e:
                 logger.error(f"Failed to enumerate audio sources: {e}")
-                pulse.close()
                 return
 
             if self.audio_device_name and self.audio_device_name in available_sources:
@@ -557,8 +562,11 @@ class MediaPipelinePixel(MediaPipeline):
                         "No valid audio source found. Audio capture will likely fail. "
                         f"Available sources: {sorted(available_sources)}"
                     )
+        except Exception as e:
+            logger.error(f"Error enforcing WebRTC audio routing: {e}")
         finally:
-            pulse.close()
+            if pulse is not None:
+                pulse.close()
 
     async def _stop_audio_pipeline(self):
         if not self._is_pcmflux_capturing or not self.pcmflux_module:
